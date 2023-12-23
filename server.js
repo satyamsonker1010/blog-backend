@@ -9,6 +9,8 @@ import admin from "firebase-admin";
 import serviceAccountKey from "./blog-55101-firebase-adminsdk-c7x88-ebecc9670c.json" assert { type: "json" };
 import { getAuth } from "firebase-admin/auth";
 import fs from "fs";
+import aws from "aws-sdk";
+
 //Schema
 import User from "./Schema/User.js";
 const server = express();
@@ -29,6 +31,24 @@ server.use(cors());
 mongoose.connect(process.env.DB_LOCATION, {
   autoIndex: true,
 });
+
+// Setting up s3  bucket
+const s3 = new aws.S3({
+  region: "ap-south-1",
+  accessKeyId: process.env.AWS_ACCESS_KEY,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+});
+
+const generateUploadURL = async () => {
+  const date = new Date();
+  const imageName = `${nanoid()}-${date.getTime()}.jpg`;
+  return await s3.getSignedUrl("putObject", {
+    Bucket: "blogging-website-hoogaaa",
+    Key: imageName,
+    Expires: 1000,
+    ContentType: "image/jpeg",
+  });
+};
 
 let emailRegex = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/; // regex for email
 let passwordRegex = /^(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{6,20}$/; // regex for password
@@ -55,6 +75,16 @@ async function generateUsername(email) {
   usernameIsUnique ? (userName += nanoid().substring(0, 7).toLowerCase()) : "";
   return userName;
 }
+
+server.get("/get-upload-url", (req, res) => {
+  generateUploadURL()
+    .then((url) => {
+      return res.status(200).json({ uploadURL: url });
+    })
+    .catch((error) => {
+      return res.status(500).json({ error: error.message });
+    });
+});
 
 server.post("/signup", (req, res) => {
   let { fullname, email, password } = req.body;
@@ -117,8 +147,11 @@ server.post("/signin", (req, res) => {
             return res.status(200).json(formatDatatoSend(user));
           }
         });
-      }else{
-        return res.status(403).json({"error":"Account was created using google. Try logging in with google."})
+      } else {
+        return res.status(403).json({
+          error:
+            "Account was created using google. Try logging in with google.",
+        });
       }
     })
     .catch((error) => {
